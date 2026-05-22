@@ -1,0 +1,6 @@
+apiVersion: v2
+name: kabisa-wyze-bridge
+description: Helm chart for deploying docker-wyze-bridge at Kabisa
+type: application
+version: 0.1.0
+appVersion: "2.10.3"

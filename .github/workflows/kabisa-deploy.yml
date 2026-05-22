@@ -1,0 +1,123 @@
+name: Build & Deploy Wyze Bridge (Kabisa)
+
+on:
+  push:
+    branches:
+      - main
+      - kabisa-deploy
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag override (default: commit SHA)"
+        required: false
+        default: ""
+
+env:
+  IMAGE: ghcr.io/gokabisa/wyze-bridge
+  NAMESPACE: tools
+  RELEASE: wyze-bridge
+  CHART: deploy/kabisa-wyze-bridge
+  PROD_VALUES: deploy/values/prod/kabisa-wyze-bridge.values.yaml
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-deploy:
+    name: Build & Deploy to K8s
+    runs-on: ubuntu-24.04-arm
+    environment: Production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          INPUT_TAG="${{ github.event.inputs.tag }}"
+          if [ -n "$INPUT_TAG" ]; then
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build + push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.multiarch
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+          build-args: |
+            BUILD=kabisa
+            GITHUB_SHA=${{ github.sha }}
+          provenance: false
+
+      - name: Set up kubeconfig
+        env:
+          KUBECONFIG_K8S: ${{ secrets.KUBECONFIG_K8S }}
+        run: |
+          mkdir -p ~/.kube
+          printf '%s' "$KUBECONFIG_K8S" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: v3.17.3
+
+      - name: Sync wyze-bridge secrets
+        env:
+          WYZE_EMAIL: ${{ secrets.WYZE_EMAIL }}
+          WYZE_PASSWORD: ${{ secrets.WYZE_PASSWORD }}
+          WYZE_API_ID: ${{ secrets.WYZE_API_ID }}
+          WYZE_API_KEY: ${{ secrets.WYZE_API_KEY }}
+          WB_USERNAME: ${{ secrets.WB_USERNAME }}
+          WB_PASSWORD: ${{ secrets.WB_PASSWORD }}
+          WB_IP: ${{ secrets.WB_IP }}
+        run: |
+          kubectl create secret generic wyze-bridge-credentials \
+            --namespace=${{ env.NAMESPACE }} \
+            --from-literal=WYZE_EMAIL="$WYZE_EMAIL" \
+            --from-literal=WYZE_PASSWORD="$WYZE_PASSWORD" \
+            --from-literal=API_ID="$WYZE_API_ID" \
+            --from-literal=API_KEY="$WYZE_API_KEY" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic wyze-bridge-webauth \
+            --namespace=${{ env.NAMESPACE }} \
+            --from-literal=WB_USERNAME="$WB_USERNAME" \
+            --from-literal=WB_PASSWORD="$WB_PASSWORD" \
+            --from-literal=WB_IP="$WB_IP" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Helm upgrade
+        run: |
+          helm upgrade --install ${{ env.RELEASE }} ${{ env.CHART }} \
+            --namespace ${{ env.NAMESPACE }} \
+            -f ${{ env.PROD_VALUES }} \
+            --set image.tag=${{ steps.tag.outputs.tag }} \
+            --wait --timeout 5m
+
+      - name: Rollout status
+        run: |
+          kubectl rollout status deployment/${{ env.RELEASE }} \
+            --namespace=${{ env.NAMESPACE }} \
+            --timeout=300s
+
+      - name: Pod + svc info
+        run: |
+          kubectl get pods,svc -n ${{ env.NAMESPACE }} -l app.kubernetes.io/name=kabisa-wyze-bridge

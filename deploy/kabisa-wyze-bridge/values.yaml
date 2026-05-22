@@ -1,0 +1,74 @@
+replicaCount: 1
+
+strategy:
+  type: Recreate
+
+terminationGracePeriodSeconds: 30
+
+image:
+  repository: ghcr.io/gokabisa/wyze-bridge
+  pullPolicy: IfNotPresent
+  tag: ""
+
+automountServiceAccountToken: false
+
+imagePullSecrets:
+  - name: regcred
+
+nameOverride: ""
+fullnameOverride: wyze-bridge
+
+credentialsSecret: wyze-bridge-credentials
+webAuthSecret: wyze-bridge-webauth
+
+service:
+  type: ClusterIP
+  port: 5000
+  targetPort: 5000
+
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 2
+    memory: 2Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podAnnotations: {}
+podLabels: {}
+
+securityContext:
+  runAsNonRoot: false
+  runAsUser: 0
+  runAsGroup: 0
+
+env:
+  WB_AUTH: "True"
+  FLASK_RUN_PORT: "5000"
+  LLHLS: "false"
+
+livenessProbe:
+  httpGet:
+    path: /
+    port: 5000
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  failureThreshold: 5
+
+readinessProbe:
+  httpGet:
+    path: /
+    port: 5000
+  initialDelaySeconds: 10
+  periodSeconds: 15
+  failureThreshold: 10
