@@ -46,6 +46,11 @@ spec:
             - name: http
               containerPort: {{ .Values.service.targetPort }}
               protocol: TCP
+            {{- range .Values.service.extraPorts }}
+            - name: {{ .name }}
+              containerPort: {{ .targetPort }}
+              protocol: {{ .protocol }}
+            {{- end }}
           env:
             {{- include "kabisa-wyze-bridge.env" . | nindent 12 }}
           envFrom:

@@ -15,6 +15,27 @@ service:
   type: ClusterIP
   port: 5000
   targetPort: 5000
+  extraPorts:
+    - name: rtsp
+      port: 8554
+      targetPort: 8554
+      protocol: TCP
+    - name: hls
+      port: 8888
+      targetPort: 8888
+      protocol: TCP
+    - name: webrtc
+      port: 8889
+      targetPort: 8889
+      protocol: TCP
+    - name: webrtc-ice
+      port: 8189
+      targetPort: 8189
+      protocol: UDP
+    - name: rtmp
+      port: 1935
+      targetPort: 1935
+      protocol: TCP
 
 persistence:
   enabled: true
